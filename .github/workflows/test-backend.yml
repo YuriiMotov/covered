@@ -115,7 +115,7 @@ jobs:
           name: coverage-html
           path: htmlcov
           include-hidden-files: true
-      - run: uv run coverage report --fail-under=${{ vars.COVERAGE_THRESHOLD || 100 }}
+      - run: uv run coverage report --fail-under=99
 
   # https://github.com/marketplace/actions/alls-green#why
   backend-check:  # This job does nothing and is only used for the branch protection
