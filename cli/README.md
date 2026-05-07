@@ -13,14 +13,14 @@ CLI for uploading HTML coverage reports to a self-hosted [covered](https://githu
 pip install covered
 ```
 
-Requires Python 3.13+.
+Requires Python 3.10+.
 
 ## Usage
 
 Upload an HTML coverage report directory:
 
 ```bash
-covered upload ./htmlcov \
+covered ./htmlcov \
   --api-url https://covered.example.com \
   --api-key "$COVERED_API_KEY" \
   --repo-owner my-org \
