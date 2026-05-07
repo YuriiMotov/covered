@@ -13,14 +13,14 @@ CLI for uploading HTML coverage reports to a self-hosted [covered](https://githu
 pip install covered
 ```
 
-Requires Python 3.13+.
+Requires Python 3.10+.
 
 ## Usage
 
 Upload an HTML coverage report directory:
 
 ```bash
-covered upload ./htmlcov \
+covered ./htmlcov \
   --api-url https://covered.example.com \
   --api-key "$COVERED_API_KEY" \
   --repo-owner my-org \
@@ -28,10 +28,10 @@ covered upload ./htmlcov \
   --commit-sha "$GITHUB_SHA" \
   --gh-token "$GITHUB_TOKEN" \
   --coverage-threshold 90 \
-  --is-default-branch
+  --purge-cache
 ```
 
-Every option also reads from a matching environment variable (`COVERED_API_URL`, `COVERED_API_KEY`, `COVERED_REPO_OWNER`, `COVERED_REPO_NAME`, `COVERED_COMMIT_SHA`, `COVERED_GH_TOKEN`, `COVERED_COVERAGE_THRESHOLD`, `COVERED_IS_DEFAULT_BRANCH`), which is the typical way to use it from CI.
+Every option also reads from a matching environment variable (`COVERED_API_URL`, `COVERED_API_KEY`, `COVERED_REPO_OWNER`, `COVERED_REPO_NAME`, `COVERED_COMMIT_SHA`, `COVERED_GH_TOKEN`, `COVERED_COVERAGE_THRESHOLD`, `COVERED_PURGE_CACHE`), which is the typical way to use it from CI.
 
 `covered upload --help` lists all options.
 

@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 from typing import Annotated
+import warnings
 
 import httpx
 import stamina
@@ -96,7 +97,7 @@ async def _main(
     commit_sha: str,
     coverage_threshold: float,
     gh_token: str,
-    is_default_branch: bool,
+    purge_cache: bool,
 ) -> None:
     start_time = datetime.now()
     typer.echo("Creating upload session...")
@@ -150,8 +151,8 @@ async def _main(
 
     typer.echo("Commit status set successfully")
 
-    if not is_default_branch:
-        typer.echo("Not on default branch, skipping cache invalidation")
+    if not purge_cache:
+        typer.echo("No `--purge-cache` set, skip purging Camo cache")
         return
 
     # Clear badge cache
@@ -238,14 +239,30 @@ def upload(
         ),
     ],
     is_default_branch: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             envvar="COVERED_IS_DEFAULT_BRANCH",
-            help="Whether this is the default branch (enables cache invalidation)",
+            help="(DEPRECATED, use `--purge-cache` instead) Whether this is the default branch (enables cache invalidation)",
+            show_default="False",
+        ),
+    ] = None,
+    purge_cache: Annotated[
+        bool,
+        typer.Option(
+            envvar="COVERED_PURGE_CACHE",
+            help="Whether to purge the GitHub Camo cache after upload (to prevent showing stale badge)",
         ),
     ] = False,
 ) -> None:
     """Upload a directory to a temporary site."""
+
+    if is_default_branch is not None:
+        warnings.warn(
+            "The `--is-default-branch` option is deprecated and will be removed in a future release. Please use `--purge-cache` instead.",
+            DeprecationWarning,
+        )
+
+    use_purge_cache = purge_cache or (is_default_branch is True)
 
     if api_url.endswith("/"):
         raise typer.BadParameter("must not end with a slash", param_hint="--api-url")
@@ -261,7 +278,7 @@ def upload(
             commit_sha=commit_sha,
             coverage_threshold=coverage_threshold,
             gh_token=gh_token,
-            is_default_branch=is_default_branch,
+            purge_cache=use_purge_cache,
         )
     )
 
