@@ -13,11 +13,7 @@ from aiobotocore.session import get_session
 app = typer.Typer()
 
 
-# TODO: review templates
-COV_PATTERNS = [
-    re.compile(r'<span\s+class="pc_cov">\s*([\d.]+)%\s*</span>'),
-    re.compile(r"<li><b>Coverage</b>:\s*([\d.]+)%</li>"),
-]
+COV_PATTERN = re.compile(r'<span\s+class="pc_cov">\s*([\d.]+)%\s*</span>')
 
 
 def _get_coverage_info(cov_report_path: Path) -> float | None:
@@ -25,12 +21,9 @@ def _get_coverage_info(cov_report_path: Path) -> float | None:
 
     if not cov_index.exists():
         return None
-    with open(cov_index, "r") as f:
-        html = f.read()
-    for pattern in COV_PATTERNS:
-        m = pattern.search(html)
-        if m:
-            return float(m.group(1))
+    m = COV_PATTERN.search(cov_index.read_text())
+    if m:
+        return float(m.group(1))
     return None
 
 
