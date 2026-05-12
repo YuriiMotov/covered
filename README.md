@@ -4,8 +4,8 @@
 </p>
 
 <p align="center">
-<a href="https://github.com/YuriiMotov/covered/actions?query=workflow%3ATest-backend+event%3Apush+branch%3Amaster">
-    <img src="https://github.com/YuriiMotov/covered/actions/workflows/test-backend.yml/badge.svg?event=push&branch=master" alt="Test backend">
+<a href="https://github.com/YuriiMotov/covered/actions?query=workflow%3ATest+event%3Apush+branch%3Amaster">
+    <img src="https://github.com/YuriiMotov/covered/actions/workflows/test.yml/badge.svg?event=push&branch=master" alt="Test">
 </a>
 <a href="https://coverage-0cc8740f.fastapicloud.dev/badge/redirect/YuriiMotov/covered/">
     <img src="https://coverage-0cc8740f.fastapicloud.dev/badge/YuriiMotov/covered.svg" alt="Coverage">
