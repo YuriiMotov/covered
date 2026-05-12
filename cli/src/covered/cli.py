@@ -80,9 +80,13 @@ async def _upload_files(
                     Body=file_path.read_bytes(),
                 )
 
-        async with asyncio.TaskGroup() as tg:
-            for f in files:
-                tg.create_task(upload_one(f))
+        results = await asyncio.gather(
+            *(upload_one(f) for f in files),
+            return_exceptions=True,
+        )
+        for r in results:
+            if isinstance(r, BaseException):
+                raise r
 
     return len(files)
 
