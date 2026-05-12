@@ -2,7 +2,7 @@ name: Coverage upload
 
 on:
   workflow_run: # zizmor: ignore[dangerous-triggers]
-    workflows: [Test-backend]
+    workflows: [Test]
     types: [completed]
 
 permissions: {}
