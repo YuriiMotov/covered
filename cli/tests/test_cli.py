@@ -7,6 +7,7 @@ from covered import cli as mod
 
 runner = CliRunner()
 
+
 def test_script():  # For coverage (if __name__ == "__main__":)
     result = subprocess.run(
         [sys.executable, "-m", "coverage", "run", mod.__file__, "--help"],
