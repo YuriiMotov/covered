@@ -1,4 +1,4 @@
-name: Test-backend
+name: Test
 
 on:
   push:
@@ -31,11 +31,12 @@ jobs:
           src:
             - .github/workflows/test-backend.yml
             - backend/**
+            - cli/**
             - .python-version
             - pyproject.toml
             - uv.lock
 
-  test:
+  test-backend:
     needs:
       - changes
     if: needs.changes.outputs.src == 'true' || github.ref == 'refs/heads/master'
@@ -69,18 +70,62 @@ jobs:
         run: uv run --no-sync bash scripts/test-cov.sh
         working-directory: backend
         env:
-          COVERAGE_FILE: coverage/.coverage.${{ runner.os }}-py${{ matrix.python-version }}
-          CONTEXT: ${{ runner.os }}-py${{ matrix.python-version }}
+          COVERAGE_FILE: coverage/.coverage.${{ runner.os }}-py${{ matrix.python-version }}-backend
+          CONTEXT: ${{ runner.os }}-py${{ matrix.python-version }}-backend
       - name: Store coverage files
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-${{ runner.os }}-py${{ matrix.python-version }}
+          name: coverage-${{ runner.os }}-py${{ matrix.python-version }}-backend
           path: backend/coverage
+          include-hidden-files: true
+
+  test-cli:
+    needs:
+      - changes
+    if: needs.changes.outputs.src == 'true' || github.ref == 'refs/heads/master'
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+        python-version: [ "3.10", "3.13", "3.14" ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          # Before upgrading uv version, make sure astral-sh/setup-uv knows its checksum.
+          # See: https://github.com/astral-sh/setup-uv/issues/851#issuecomment-4282017837
+          version: "0.11.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            cli/pyproject.toml
+            uv.lock
+      - name: Install Dependencies
+        run: uv sync --project cli
+      - name: Test
+        run: uv run --no-sync bash scripts/test-cov.sh
+        working-directory: cli
+        env:
+          COVERAGE_FILE: coverage/.coverage.${{ runner.os }}-py${{ matrix.python-version }}-cli
+          CONTEXT: ${{ runner.os }}-py${{ matrix.python-version }}-cli
+      - name: Store coverage files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-${{ runner.os }}-py${{ matrix.python-version }}-cli
+          path: cli/coverage
           include-hidden-files: true
 
   coverage-combine:
     needs:
-      - test
+      - test-backend
+      - test-cli
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -128,4 +173,4 @@ jobs:
         uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # v1.2.2
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: coverage-combine,test
+          allowed-skips: coverage-combine,test-backend,test-cli
