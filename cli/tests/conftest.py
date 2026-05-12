@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import stamina
+from typer import rich_utils
 
 
 @pytest.fixture
@@ -24,3 +25,9 @@ def _isolate_covered_env(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True, scope="session")
 def _set_stamina_testing():
     stamina.set_testing(True, attempts=10, cap=True)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def setup_terminal() -> None:
+    rich_utils.MAX_WIDTH = 3000
+    rich_utils.FORCE_TERMINAL = False
