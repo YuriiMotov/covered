@@ -1,25 +1,16 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from typer.testing import CliRunner
 
 from covered.cli import app
+from utils import COMMON_ENV
 
 runner = CliRunner()
 
-common_env = {
-    "COVERED_API_KEY": "test_api_key",
-    "COVERED_API_URL": "https://api.example.com",
-    "COVERED_GH_TOKEN": "test_github_token",
-    "COVERED_REPO_OWNER": "test_owner",
-    "COVERED_REPO_NAME": "test_repo",
-    "COVERED_COMMIT_SHA": "test_commit_sha",
-}
 
-
-def test_is_default_branch_true():
+def test_is_default_branch_true(mock_main: AsyncMock):
     with (
-        patch("covered.cli._main", AsyncMock(return_value=None)) as mock_main,
         pytest.warns(
             DeprecationWarning,
             match=(
@@ -28,7 +19,7 @@ def test_is_default_branch_true():
             ),
         ),
     ):
-        result = runner.invoke(app, [".", "--is-default-branch"], env=common_env)
+        result = runner.invoke(app, [".", "--is-default-branch"], env=COMMON_ENV)
 
     assert result.exit_code == 0, result.stderr
 
@@ -39,9 +30,8 @@ def test_is_default_branch_true():
     assert purge_cache_arg is True
 
 
-def test_is_default_branch_false():
+def test_is_default_branch_false(mock_main: AsyncMock):
     with (
-        patch("covered.cli._main", AsyncMock(return_value=None)) as mock_main,
         pytest.warns(
             DeprecationWarning,
             match=(
@@ -50,7 +40,7 @@ def test_is_default_branch_false():
             ),
         ),
     ):
-        result = runner.invoke(app, [".", "--no-is-default-branch"], env=common_env)
+        result = runner.invoke(app, [".", "--no-is-default-branch"], env=COMMON_ENV)
 
     assert result.exit_code == 0, result.stderr
 
@@ -68,9 +58,10 @@ def test_is_default_branch_false():
         "--no-is-default-branch",
     ],
 )
-def test_is_default_branch_and_purge_cache(is_default_branch_flag: str):
+def test_is_default_branch_and_purge_cache(
+    is_default_branch_flag: str, mock_main: AsyncMock
+):
     with (
-        patch("covered.cli._main", AsyncMock(return_value=None)) as mock_main,
         pytest.warns(
             DeprecationWarning,
             match=(
@@ -80,7 +71,7 @@ def test_is_default_branch_and_purge_cache(is_default_branch_flag: str):
         ),
     ):
         result = runner.invoke(
-            app, [".", is_default_branch_flag, "--purge-cache"], env=common_env
+            app, [".", is_default_branch_flag, "--purge-cache"], env=COMMON_ENV
         )
 
     assert result.exit_code == 0, result.stderr
