@@ -46,8 +46,11 @@ flowchart LR
 ```
 
 CLI requests temporary credentials from the backend to upload the report to S3, uploads the report, then sets a `covered` status on the commit.
+
 When reader opens the page that contains badge, the badge is loaded from the backend, which looks up the latest `covered` status for the default branch commit, finds the corresponding coverage value, and serves the badge SVG. The badge links to the report URL, which is also served by the backend.
+
 Optional Redis caching can be used to reduce latency and GitHub API calls for frequently accessed badges.
+
 After uploading a report on the default branch, the CLI can also trigger a cache purge (if `-purge-cache` is specified) to ensure the badge reflects the new coverage value as soon as possible.
 
 ## Getting started
