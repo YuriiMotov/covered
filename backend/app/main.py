@@ -10,7 +10,9 @@ from app.routers.badge import router as badge_router
 
 async def lifespan(_: FastAPI):
     settings = get_settings()
-    redis_connection = Redis.from_url(str(settings.redis_url))
+    redis_connection = None
+    if settings.redis_url is not None:
+        redis_connection = Redis.from_url(str(settings.redis_url))
     async with (
         AWSStorage(
             access_key_id=settings.aws_access_key_id,
@@ -28,7 +30,8 @@ async def lifespan(_: FastAPI):
             "gh_client": gh_client,
             "redis_connection": redis_connection,
         }
-    await redis_connection.aclose()
+    if redis_connection is not None:
+        await redis_connection.aclose()
 
 
 app = FastAPI(lifespan=lifespan, openapi_url=None)

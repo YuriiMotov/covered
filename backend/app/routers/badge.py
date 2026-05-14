@@ -125,12 +125,12 @@ async def badge(
     repo: str,
     gh_client: Annotated[GithubClient, Depends(get_github_client)],
     request: Request,
-    redis_client: Annotated[Redis, Depends(get_redis_client)],
+    redis_client: Annotated[Redis | None, Depends(get_redis_client)],
 ) -> Response:
 
     cache_key = BADGE_CACHE_KEY.format(org=org, repo=repo)
     try:
-        cached = await redis_client.get(cache_key)
+        cached = await redis_client.get(cache_key) if redis_client else None
     except RedisError as e:
         print(f"Error accessing cache: {e}")
         cached = None
@@ -150,11 +150,12 @@ async def badge(
     )
 
     try:
-        await redis_client.set(
-            cache_key,
-            svg.encode("utf-8"),
-            ex=60,
-        )
+        if redis_client:
+            await redis_client.set(
+                cache_key,
+                svg.encode("utf-8"),
+                ex=60,
+            )
     except RedisError as e:
         print(f"Error caching data: {e}")
 

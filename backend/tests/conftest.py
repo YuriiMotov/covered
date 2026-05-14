@@ -1,6 +1,7 @@
 import os
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -91,11 +92,23 @@ def client(_patch_aiobotocore: None) -> Iterator[TestClient]:
         yield tc
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(name="override_redis", autouse=True)
 def _override_redis(mock_redis: AsyncMock) -> Iterator[None]:
     app.dependency_overrides[get_redis_client] = lambda: mock_redis
     yield
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def disable_redis(
+    override_redis: Any, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Disable Redis for a test."""
+    old_dep = app.dependency_overrides.get(get_redis_client)
+    app.dependency_overrides[get_redis_client] = lambda: None
+    yield
+    if old_dep is not None:
+        app.dependency_overrides[get_redis_client] = old_dep
 
 
 @pytest.fixture(autouse=True, scope="session")
