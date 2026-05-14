@@ -57,7 +57,7 @@ After uploading a report on the default branch, the CLI can also trigger a cache
 
 Setting up Covered takes two steps:
 
-1. **Deploy the backend** — provision S3, Redis, and a GitHub token, then deploy to FastAPI Cloud. See [backend/README.md](backend/README.md).
+1. **Deploy the backend** — provision S3, Redis (optionally), and a GitHub token, then deploy to FastAPI Cloud. See [backend/README.md](backend/README.md).
 2. **Wire up CI** — add the `covered` CLI to your test workflow. See the [GitHub Action setup](#github-action-setup) below; full CLI options are in [cli/README.md](cli/README.md).
 
 ## GitHub Action setup
