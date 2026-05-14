@@ -9,7 +9,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-01T19:37:27.773690117Z"
+exclude-newer = "2026-05-07T20:16:39.759824256Z"
 exclude-newer-span = "P1W"
 
 [manifest]
@@ -435,7 +435,7 @@ toml = [
 
 [[package]]
 name = "covered"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "cli" }
 dependencies = [
     { name = "aiobotocore" },
@@ -454,7 +454,7 @@ requires-dist = [
 
 [[package]]
 name = "covered-server"
-version = "0.1.0"
+version = "0.1.1"
 source = { virtual = "backend" }
 dependencies = [
     { name = "aiobotocore" },
