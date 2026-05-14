@@ -10,6 +10,7 @@ from redis import RedisError
 
 pytestmark = pytest.mark.respx(base_url="https://api.github.com")
 
+
 def get_commit(sha: str | None = None, skip_ci: bool = False) -> dict[str, Any]:
     if sha is None:
         sha = uuid.uuid4().hex
@@ -419,6 +420,27 @@ class TestBadge:
             client.get("/badge/owner/repo.svg")
 
         assert not mock_redis.set.called  # Don't cache failed responses
+
+    def test_get_badge_without_redis(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        disable_redis: None,
+    ):
+        # Test that the badge endpoint works even if Redis is not configured
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        resp = client.get("/badge/owner/repo.svg")
+
+        assert resp.status_code == 200
+        assert "coverage: 87%" in resp.text
+        mock_redis.get.assert_not_called()
+        mock_redis.set.assert_not_called()
 
 
 class TestBadgeRedirect:

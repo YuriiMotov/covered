@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     aws_bucket: str = "covered"
     aws_upload_role_arn: str
 
-    redis_url: AnyUrl
+    redis_url: AnyUrl | None = None
 
     github_token: SecretStr
 

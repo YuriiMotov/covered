@@ -72,3 +72,18 @@ class TestInvalidateCache:
         )
 
         mock_redis.delete.assert_awaited_once_with("cache:badge:some-org:some-repo")
+
+    def test_no_redis_configured_does_not_error(
+        self,
+        client: TestClient,
+        mock_redis: AsyncMock,
+        disable_redis: None,
+        api_key: str,
+    ):
+        resp = client.post(
+            "/coverage/invalidate-cache/owner/repo/",
+            headers={"token": api_key},
+        )
+
+        assert resp.status_code == 200
+        mock_redis.delete.assert_not_called()

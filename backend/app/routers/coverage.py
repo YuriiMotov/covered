@@ -31,11 +31,12 @@ router = APIRouter()
 async def invalidate_cache(
     repo_owner: str,
     repo_name: str,
-    redis_client: Annotated[Redis, Depends(get_redis_client)],
+    redis_client: Annotated[Redis | None, Depends(get_redis_client)],
 ):
     cache_key = BADGE_CACHE_KEY.format(org=repo_owner, repo=repo_name)
     try:
-        await redis_client.delete(cache_key)
+        if redis_client:
+            await redis_client.delete(cache_key)
     except RedisError as e:
         print(f"Error invalidating cache for {repo_owner}/{repo_name}: {e}")
         raise HTTPException(status_code=500, detail="Failed to invalidate cache")
