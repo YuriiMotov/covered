@@ -13,17 +13,12 @@ This document is the operator manual — provisioning the external services, con
 
 Before deploying the backend, you will need:
 
-- **An S3 bucket** to store the uploaded HTML reports. The backend writes objects under the `sites/<site_id>/...` prefix and reads them back when serving reports. No public access or static website hosting needs to be enabled — the backend serves files itself.
+- **AWS infrastructure** — an S3 bucket, an IAM user, and an IAM role. See [aws.md](aws.md) for step-by-step setup with the exact policy JSON. The short version of what you'll end up with:
+  - An **S3 bucket** for HTML reports. The backend writes objects under the `sites/<site_id>/...` prefix and reads them back when serving reports. No public access or static website hosting — the backend serves files itself.
+  - An **IAM user** for the backend, with a long-lived access key. It needs `s3:PutObject` + `s3:GetObject` on `<bucket>/sites/*`, and `sts:AssumeRole` on the upload role.
+  - An **IAM role for uploads**, with a permissions policy granting `s3:PutObject` on `<bucket>/sites/*` and a trust policy allowing the IAM user to assume it. The backend assumes this role via STS to mint short-lived credentials for the CLI, further narrowed per upload by a session policy scoped to a single `site_id` — so the CLI never receives credentials that can write outside its own report directory.
 
-- **An AWS IAM user for the backend**, with a long-lived access key. The user needs:
-  - `s3:PutObject` and `s3:GetObject` on `arn:aws:s3:::<bucket>/sites/*` — used to create per-upload site directories and to serve report files.
-  - `sts:AssumeRole` on the upload role described below.
-
-- **An AWS IAM role for uploads**, whose ARN is passed to the backend as `AWS_UPLOAD_ROLE_ARN`. The backend assumes this role via STS to mint short-lived credentials that the CLI uses to upload report files directly to S3. The role needs:
-  - A permissions policy granting `s3:PutObject` on `arn:aws:s3:::<bucket>/sites/*`. The backend further narrows this per upload via a session policy scoped to a single `site_id`, so the CLI never receives credentials that can write outside its own report directory.
-  - A trust policy allowing the backend IAM user to assume it.
-
-- **A Redis instance** reachable from the backend. It is used as a short-lived cache for rendered badge SVGs.
+- **A Redis instance** (optional) reachable from the backend. It is used as a short-lived cache for rendered badge SVGs.
 
 - **A GitHub token** with read access to commit statuses on every repository whose coverage you want to display. A fine-grained PAT with `Commit statuses: Read-only` is sufficient; a classic PAT with `repo` (or `public_repo` for public repositories only) also works.
 
@@ -39,7 +34,7 @@ The backend is configured via environment variables, loaded by `app.config.Setti
 | `AWS_ACCESS_KEY_ID` | yes | — | Access key of the backend's IAM user (the one with `s3:GetObject`/`PutObject` on `<bucket>/sites/*` and `sts:AssumeRole` on the upload role). |
 | `AWS_SECRET_ACCESS_KEY` | yes | — | Secret access key for the above IAM user. |
 | `AWS_UPLOAD_ROLE_ARN` | yes | — | ARN of the IAM role the backend assumes via STS to mint short-lived upload credentials for the CLI. |
-| `REDIS_URL` | yes | — | Connection URL for Redis. Used to cache rendered badge SVGs (60 s TTL). |
+| `REDIS_URL` | no | — | Connection URL for Redis. Used to cache rendered badge SVGs (60 s TTL). |
 | `GITHUB_TOKEN` | yes | — | GitHub token used to read commit statuses. See [Prerequisites](#prerequisites) for the required scopes. |
 
 ## Deploying to FastAPI Cloud
@@ -50,7 +45,7 @@ Covered is designed to run on [FastAPI Cloud](https://fastapicloud.com/). The de
 
 2. **Create an app** in the FastAPI Cloud dashboard.
 
-3. **Configure the environment variables** on the app (the [table above](#environment-variables) lists all of them). FastAPI Cloud also offers a Redis integration that can set `REDIS_URL` for you — use it if you want, otherwise paste in the URL from your Redis provider.
+3. **Configure the environment variables** on the app (the [table above](#environment-variables) lists all of them).
 
 4. **Clone (or fork) this repository.** Fork if you plan to customize the backend.
 
