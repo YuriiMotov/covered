@@ -58,7 +58,7 @@ jobs:
         with:
           # Before upgrading uv version, make sure astral-sh/setup-uv knows its checksum.
           # See: https://github.com/astral-sh/setup-uv/issues/851#issuecomment-4282017837
-          version: "0.11.21"
+          version: "0.11.18"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
@@ -101,7 +101,7 @@ jobs:
         with:
           # Before upgrading uv version, make sure astral-sh/setup-uv knows its checksum.
           # See: https://github.com/astral-sh/setup-uv/issues/851#issuecomment-4282017837
-          version: "0.11.21"
+          version: "0.11.18"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
@@ -137,7 +137,7 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
-          version: "0.11.21"
+          version: "0.11.18"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
