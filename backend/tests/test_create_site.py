@@ -5,12 +5,7 @@ from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 
 from app.utils.aws_storage import AWSStorageError
-
-STS_CREDENTIALS = {
-    "AccessKeyId": "ASIAIOSFODNN7EXAMPLE",
-    "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-    "SessionToken": "FwoGZXIvYXdzEBY...",
-}
+from tests.helpers import STS_CREDENTIALS
 
 
 class TestCreateSiteAuth:
@@ -19,9 +14,7 @@ class TestCreateSiteAuth:
         assert resp.status_code == 401
 
     def test_invalid_token_returns_403(self, client: TestClient):
-        resp = client.post(
-            "/coverage/create-site/", headers={"token": "wrong-key"}
-        )
+        resp = client.post("/coverage/create-site/", headers={"token": "wrong-key"})
         assert resp.status_code == 403
 
     def test_valid_token_returns_200(
@@ -32,9 +25,7 @@ class TestCreateSiteAuth:
     ):
         mock_sts_client.assume_role.return_value = {"Credentials": STS_CREDENTIALS}
 
-        resp = client.post(
-            "/coverage/create-site/", headers={"token": api_key}
-        )
+        resp = client.post("/coverage/create-site/", headers={"token": api_key})
 
         assert resp.status_code == 200
 
@@ -49,9 +40,7 @@ class TestCreateSite:
     ):
         mock_sts_client.assume_role.return_value = {"Credentials": STS_CREDENTIALS}
 
-        resp = client.post(
-            "/coverage/create-site/", headers={"token": api_key}
-        )
+        resp = client.post("/coverage/create-site/", headers={"token": api_key})
 
         assert resp.status_code == 200
         data = resp.json()
@@ -83,13 +72,10 @@ class TestCreateSite:
         mock_s3_client.put_object.side_effect = [collision, collision, {}]
         mock_sts_client.assume_role.return_value = {"Credentials": STS_CREDENTIALS}
 
-        resp = client.post(
-            "/coverage/create-site/", headers={"token": api_key}
-        )
+        resp = client.post("/coverage/create-site/", headers={"token": api_key})
 
         assert resp.status_code == 200
         assert mock_s3_client.put_object.await_count == 3
-
 
     def test_fails_after_max_attempts_on_site_id_collision(
         self,
@@ -105,10 +91,11 @@ class TestCreateSite:
         mock_s3_client.put_object.side_effect = [collision, collision, collision]
         mock_sts_client.assume_role.return_value = {"Credentials": STS_CREDENTIALS}
 
-        with pytest.raises(AWSStorageError, match="Failed to generate unique site ID after multiple attempts"):
-            client.post(
-                "/coverage/create-site/", headers={"token": api_key}
-            )
+        with pytest.raises(
+            AWSStorageError,
+            match="Failed to generate unique site ID after multiple attempts",
+        ):
+            client.post("/coverage/create-site/", headers={"token": api_key})
 
         assert mock_s3_client.put_object.await_count == 3
 

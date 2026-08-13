@@ -4,7 +4,7 @@ import pytest
 from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 
-SITE_ID = "aabbccddeeff"
+from tests.helpers import SITE_ID
 
 
 def _mock_s3_body(mock_s3_client: AsyncMock, content: bytes) -> None:
