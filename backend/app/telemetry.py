@@ -24,6 +24,14 @@ UPLOAD_SESSIONS_CREATED = _meter.create_counter(
     "covered.upload_sessions.created",
     description="Upload sessions created",
 )
+GITHUB_REQUESTS = _meter.create_counter(
+    "covered.github.requests",
+    description="GitHub API requests, by endpoint and outcome",
+)
+GITHUB_RETRIES = _meter.create_counter(
+    "covered.github.retries",
+    description="GitHub API attempts that followed a failed one",
+)
 
 
 def _service_version() -> str:  # pragma: no cover - deployment only
