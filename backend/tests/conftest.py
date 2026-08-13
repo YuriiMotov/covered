@@ -10,7 +10,7 @@ import stamina
 
 from app.config import get_settings
 from app.dependencies.redis_client import get_redis_client
-from app.main import app
+from app.application import app
 
 TEST_API_KEY = "test-api-key"
 
