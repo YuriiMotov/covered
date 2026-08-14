@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from logfire.integrations.logging import LogfireLoggingHandler
 from opentelemetry import metrics, trace
 
+logger = logging.getLogger(__name__)
+
 INSTRUMENTATION_NAME = "covered.backend"
 
 tracer = trace.get_tracer(INSTRUMENTATION_NAME)
@@ -52,13 +54,26 @@ def _service_version() -> str:  # pragma: no cover - deployment only
 
 def setup_telemetry(app: FastAPI) -> None:
     """Configure Logfire and switch on instrumentation. No-op without a token."""
-    if os.environ.get("LOGFIRE_TOKEN", "").strip():  # pragma: no cover
-        logfire.configure(
-            service_name="covered-backend",
-            service_version=_service_version(),
-        )
-        logfire.instrument_system_metrics()
-        logfire.instrument_fastapi(app)
-        logfire.instrument_httpx()
-        logfire.instrument_redis()
-        logging.getLogger().addHandler(LogfireLoggingHandler())
+
+    if not os.environ.get("LOGFIRE_TOKEN", "").strip():
+        logger.warning("LOGFIRE_TOKEN is not set, telemetry is disabled")
+        return
+
+    _configure_logfire(app)  # pragma: no cover - needs a real token
+    logger.info(  # pragma: no cover - needs a real token
+        "telemetry enabled, environment %r",
+        os.environ.get("LOGFIRE_ENVIRONMENT", "<unset>"),
+    )
+
+
+def _configure_logfire(app: FastAPI) -> None:  # pragma: no cover - needs a token
+    logfire.configure(
+        service_name="covered-backend",
+        service_version=_service_version(),
+        distributed_tracing=False,
+    )
+    logfire.instrument_system_metrics()
+    logfire.instrument_fastapi(app)
+    logfire.instrument_httpx()
+    logfire.instrument_redis()
+    logging.getLogger().addHandler(LogfireLoggingHandler())
