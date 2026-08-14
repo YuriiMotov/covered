@@ -20,6 +20,9 @@ class AWSStorageError(Exception):
     pass
 
 
+SITE_ID_ATTEMPTS = 3
+
+
 @dataclass
 class UploadSession:
     site_id: str
@@ -69,28 +72,30 @@ class AWSStorage:
         if self._client is None:
             raise AWSStorageError("Client not initialized")
         with tracer.start_as_current_span("s3.generate_site_id") as span:
-            for attempt in range(1, 4):
-                site_id = uuid4().hex[:12]
-                full_key = f"sites/{site_id}/.keep"
-                try:
-                    await self._client.put_object(
-                        Bucket=self._bucket,
-                        Key=full_key,
-                        Body=b"",
-                        IfNoneMatch="*",
-                    )
-                    span.set_attribute("attempts", attempt)
-                    span.set_attribute("site_id", site_id)
-                    return site_id
-                except ClientError as e:
-                    if e.response.get("Error", {}).get("Code") == "PreconditionFailed":
-                        continue
-                    span.set_attribute("attempts", attempt)
-                    raise AWSStorageError(f"Failed to create site directory: {e}")
-            span.set_attribute("attempts", 3)
-            raise AWSStorageError(
-                "Failed to generate unique site ID after multiple attempts"
-            )
+            attempt = 0
+            try:
+                for attempt in range(1, SITE_ID_ATTEMPTS + 1):
+                    site_id = uuid4().hex[:12]
+                    full_key = f"sites/{site_id}/.keep"
+                    try:
+                        await self._client.put_object(
+                            Bucket=self._bucket,
+                            Key=full_key,
+                            Body=b"",
+                            IfNoneMatch="*",
+                        )
+                        span.set_attribute("site_id", site_id)
+                        return site_id
+                    except ClientError as e:
+                        code = e.response.get("Error", {}).get("Code")
+                        if code == "PreconditionFailed":
+                            continue
+                        raise AWSStorageError(f"Failed to create site directory: {e}")
+                raise AWSStorageError(
+                    "Failed to generate unique site ID after multiple attempts"
+                )
+            finally:
+                span.set_attribute("attempts", attempt)
 
     async def create_upload_session(self) -> UploadSession:
         with tracer.start_as_current_span("s3.create_upload_session") as span:
