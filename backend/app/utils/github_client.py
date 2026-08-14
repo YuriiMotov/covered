@@ -69,9 +69,8 @@ class GithubClient:
                         if response.status_code >= 500:
                             response.raise_for_status()
                 response.raise_for_status()
-            except Exception as e:
+            except Exception:
                 span.set_attribute("attempts", attempts)
-                span.record_exception(e)
                 GITHUB_REQUESTS.add(1, {"endpoint": endpoint, "outcome": "error"})
                 raise
             span.set_attribute("attempts", attempts)

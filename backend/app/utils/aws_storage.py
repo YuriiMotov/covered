@@ -86,7 +86,6 @@ class AWSStorage:
                     if e.response.get("Error", {}).get("Code") == "PreconditionFailed":
                         continue
                     span.set_attribute("attempts", attempt)
-                    span.record_exception(e)
                     raise AWSStorageError(f"Failed to create site directory: {e}")
             span.set_attribute("attempts", 3)
             raise AWSStorageError(
@@ -160,7 +159,6 @@ class AWSStorage:
                     S3_FILES_SERVED.add(1, {"result": "not_found"})
                     raise AWSStorageError(f"File not found: {full_key}")
                 span.set_attribute("result", "error")
-                span.record_exception(e)
                 S3_FILES_SERVED.add(1, {"result": "error"})
                 raise AWSStorageError(f"Failed to get file: {e}")
             span.set_attribute("result", "ok")
