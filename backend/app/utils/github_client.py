@@ -5,6 +5,7 @@ import stamina
 from pydantic import SecretStr
 
 from app.schemas import GhCommit, GhCommitStatus
+from app.telemetry import GITHUB_REQUESTS, GITHUB_RETRIES, tracer
 
 BASE_URL = "https://api.github.com"
 
@@ -37,27 +38,55 @@ class GithubClient:
         await self._exit_stack.aclose()
         self._httpx_client = None
 
-    async def _get(self, url: str, params: dict | None = None) -> httpx.Response:
+    async def _get(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        owner: str,
+        repo: str,
+        params: dict | None = None,
+    ) -> httpx.Response:
         self.ensure_initialized()
         assert self._httpx_client is not None
 
-        async for attempt in stamina.retry_context(
-            on=(httpx.TransportError, httpx.HTTPStatusError),
-            attempts=3,
-            wait_jitter=2.0,
-        ):
-            with attempt:
-                response = await self._httpx_client.get(url, params=params)
-                if response.status_code >= 500:
-                    response.raise_for_status()
-        response.raise_for_status()
-        return response
+        with tracer.start_as_current_span(
+            "github.request",
+            attributes={"endpoint": endpoint, "owner": owner, "repo": repo},
+        ) as span:
+            attempts = 0
+            try:
+                async for attempt in stamina.retry_context(
+                    on=(httpx.TransportError, httpx.HTTPStatusError),
+                    attempts=3,
+                    wait_jitter=2.0,
+                ):
+                    with attempt:
+                        attempts += 1
+                        if attempts > 1:
+                            GITHUB_RETRIES.add(1, {"endpoint": endpoint})
+                        response = await self._httpx_client.get(url, params=params)
+                        if response.status_code >= 500:
+                            response.raise_for_status()
+                response.raise_for_status()
+            except Exception:
+                span.set_attribute("attempts", attempts)
+                GITHUB_REQUESTS.add(1, {"endpoint": endpoint, "outcome": "error"})
+                raise
+            span.set_attribute("attempts", attempts)
+            span.set_attribute("http.status_code", response.status_code)
+            GITHUB_REQUESTS.add(1, {"endpoint": endpoint, "outcome": "ok"})
+            return response
 
     async def get_latest_commits(
         self, owner: str, repo: str, limit: int = 5
     ) -> list[GhCommit]:
         response = await self._get(
-            f"/repos/{owner}/{repo}/commits", params={"per_page": limit}
+            f"/repos/{owner}/{repo}/commits",
+            endpoint="commits",
+            owner=owner,
+            repo=repo,
+            params={"per_page": limit},
         )
         resp_json = response.json()
         assert isinstance(resp_json, list)
@@ -66,7 +95,12 @@ class GithubClient:
     async def get_commit_statuses(
         self, owner: str, repo: str, sha: str
     ) -> list[GhCommitStatus]:
-        response = await self._get(f"/repos/{owner}/{repo}/statuses/{sha}")
+        response = await self._get(
+            f"/repos/{owner}/{repo}/statuses/{sha}",
+            endpoint="statuses",
+            owner=owner,
+            repo=repo,
+        )
         resp_json = response.json()
         assert isinstance(resp_json, list)
         return [GhCommitStatus.model_validate(item) for item in resp_json]

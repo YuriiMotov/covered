@@ -1,6 +1,4 @@
-from typing import Any
 from unittest.mock import AsyncMock
-import uuid
 
 import httpx
 import pytest
@@ -8,38 +6,14 @@ import respx
 from fastapi.testclient import TestClient
 from redis import RedisError
 
+from tests.helpers import (
+    COVERAGE_STATUS,
+    FAILED_COVERAGE_STATUS,
+    NON_COVERAGE_STATUS,
+    get_commit,
+)
+
 pytestmark = pytest.mark.respx(base_url="https://api.github.com")
-
-
-def get_commit(sha: str | None = None, skip_ci: bool = False) -> dict[str, Any]:
-    if sha is None:
-        sha = uuid.uuid4().hex
-    message = uuid.uuid4().hex
-    if skip_ci:
-        message += "\n\n[skip ci]"
-    return {"sha": sha, "commit": {"message": message}}
-
-
-COVERAGE_STATUS = {
-    "state": "success",
-    "description": "87% coverage",
-    "target_url": "https://example.com/coverage/report",
-    "context": "coverage/project",
-}
-
-NON_COVERAGE_STATUS = {
-    "state": "success",
-    "description": "example status",
-    "target_url": "https://example.com/",
-    "context": "other/status",
-}
-
-FAILED_COVERAGE_STATUS = {
-    "state": "failure",
-    "description": "42% coverage",
-    "target_url": "https://example.com/coverage/report",
-    "context": "coverage/project",
-}
 
 
 class TestBadge:
