@@ -1,5 +1,6 @@
 """Tests for the telemetry (except auto-instrumentation)."""
 
+import logging
 from unittest.mock import AsyncMock
 
 import httpx
@@ -8,6 +9,7 @@ import respx
 from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 from logfire.testing import CaptureLogfire
+from redis import RedisError
 
 from tests.helpers import (
     COVERAGE_STATUS,
@@ -48,7 +50,7 @@ def github_span(capfire: CaptureLogfire, endpoint: str) -> dict:
 
 
 class TestS3Spans:
-    def test_serving_a_file_describes_it_on_the_span(
+    def test_serving_file_describes_it_on_the_span(
         self,
         client: TestClient,
         mock_s3_client: AsyncMock,
@@ -280,7 +282,7 @@ class TestGithubSpans:
 
         assert github_span(capfire, "statuses")["attributes"]["attempts"] == 1
 
-    def test_a_retry_shows_up_as_a_second_attempt(
+    def test_retry_shows_up_as_a_second_attempt(
         self,
         client: TestClient,
         respx_mock: respx.MockRouter,
@@ -411,7 +413,7 @@ class TestGithubMetrics:
         assert counter_value(points, "covered.github.retries", endpoint="commits") == 2
 
     @pytest.mark.respx(base_url="https://api.github.com", assert_all_called=False)
-    def test_a_cached_badge_calls_github_not_at_all(
+    def test_cached_badge_calls_github_not_at_all(
         self,
         client: TestClient,
         respx_mock: respx.MockRouter,
@@ -428,3 +430,326 @@ class TestGithubMetrics:
             points, "covered.github.requests", endpoint="commits", outcome="ok"
         )
         assert requests_cnt == 0
+
+
+class TestBadgeSpans:
+    pytestmark = pytest.mark.respx(base_url="https://api.github.com")
+
+    @pytest.mark.respx(base_url="https://api.github.com", assert_all_called=False)
+    def test_cache_hit_is_recorded_on_the_request_span(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_redis.get.return_value = b"<svg>cached</svg>"
+        respx_mock.get("/repos/owner/repo/commits")
+
+        resp = client.get("/badge/owner/repo.svg")
+
+        assert resp.text == "<svg>cached</svg>"
+
+        span = find_span(capfire, "badge.request")
+        assert span is not None
+        assert span["attributes"]["org"] == "owner"
+        assert span["attributes"]["repo"] == "repo"
+        assert span["attributes"]["badge.cache"] == "hit"
+
+    def test_resolved_coverage_is_described_on_its_own_span(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_redis.get.return_value = None
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        assert "coverage: 87%" in client.get("/badge/owner/repo.svg").text
+
+        request_span = find_span(capfire, "badge.request")
+        span = find_span(capfire, "badge.resolve_coverage")
+        assert request_span is not None
+        assert span is not None
+        assert request_span["attributes"]["badge.cache"] == "miss"
+        assert span["parent"]["span_id"] == request_span["context"]["span_id"]
+        assert span["attributes"]["commits_fetched"] == 1
+        assert span["attributes"]["coverage_found"] is True
+        assert span["attributes"]["coverage_percent"] == 87.0
+        assert span["attributes"]["commit_sha"] == commit["sha"]
+        assert span["attributes"]["commit_index"] == 0
+
+    def test_skipped_commits_show_up_as_a_later_index(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_redis.get.return_value = None
+        skipped = get_commit(skip_ci=True)
+        used = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[skipped, used])
+        respx_mock.get(f"/repos/owner/repo/statuses/{used['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        assert "coverage: 87%" in client.get("/badge/owner/repo.svg").text
+
+        span = find_span(capfire, "badge.resolve_coverage")
+        assert span is not None
+        assert span["attributes"]["commits_fetched"] == 2
+        assert span["attributes"]["commit_index"] == 1
+        assert span["attributes"]["commit_sha"] == used["sha"]
+
+    def test_no_usable_commit_leaves_the_index_unset(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_redis.get.return_value = None
+        commits = [get_commit(skip_ci=True) for _ in range(3)]
+        respx_mock.get("/repos/owner/repo/commits").respond(json=commits)
+
+        assert "coverage: ??%" in client.get("/badge/owner/repo.svg").text
+
+        span = find_span(capfire, "badge.resolve_coverage")
+        assert span is not None
+        assert span["attributes"]["commits_fetched"] == 3
+        assert span["attributes"]["coverage_found"] is False
+        # Every commit was skipped, so no commit was examined at all.
+        assert "commit_index" not in span["attributes"]
+        assert "commit_sha" not in span["attributes"]
+
+    def test_the_whole_request_is_one_trace(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_redis.get.return_value = None
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        assert client.get("/badge/owner/repo.svg").status_code == 200
+
+        request_span = find_span(capfire, "badge.request")
+        resolve_span = find_span(capfire, "badge.resolve_coverage")
+        assert request_span is not None
+        assert resolve_span is not None
+
+        # badge.request > badge.resolve_coverage > github.request (x2)
+        assert resolve_span["parent"]["span_id"] == request_span["context"]["span_id"]
+        for endpoint in ("commits", "statuses"):
+            span = github_span(capfire, endpoint)
+            assert span["parent"]["span_id"] == resolve_span["context"]["span_id"]
+            assert span["context"]["trace_id"] == request_span["context"]["trace_id"]
+
+    def test_badge_without_coverage_says_so(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_redis.get.return_value = None
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(json=[])
+
+        assert "coverage: ??%" in client.get("/badge/owner/repo.svg").text
+
+        span = find_span(capfire, "badge.resolve_coverage")
+        assert span is not None
+        assert span["attributes"]["coverage_found"] is False
+        assert span["attributes"]["commits_fetched"] == 1
+        assert "coverage_percent" not in span["attributes"]
+
+
+class TestBadgeMetrics:
+    pytestmark = pytest.mark.respx(base_url="https://api.github.com")
+
+    def test_hits_and_misses_are_counted_separately(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        cached = b"<svg>cached</svg>"
+        mock_redis.get.side_effect = [None, cached, cached, None, None]
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        for _ in range(5):
+            assert client.get("/badge/owner/repo.svg").status_code == 200
+
+        points = collect_metrics(capfire)
+        assert counter_value(points, "covered.badge.cache_lookups", result="hit") == 2
+        assert counter_value(points, "covered.badge.cache_lookups", result="miss") == 3
+        # Only the three misses render a badge.
+        assert counter_value(points, "covered.badge.rendered", found=True) == 3
+
+    def test_rendered_badges_are_split_by_outcome(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_redis.get.return_value = None
+        with_coverage = get_commit()
+        without_coverage = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").mock(
+            side_effect=[
+                httpx.Response(200, json=[with_coverage]),
+                httpx.Response(200, json=[without_coverage]),
+            ]
+        )
+        respx_mock.get(f"/repos/owner/repo/statuses/{with_coverage['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+        respx_mock.get(f"/repos/owner/repo/statuses/{without_coverage['sha']}").respond(
+            json=[]
+        )
+
+        assert "coverage: 87%" in client.get("/badge/owner/repo.svg").text
+        assert "coverage: ??%" in client.get("/badge/owner/repo.svg").text
+
+        points = collect_metrics(capfire)
+        assert counter_value(points, "covered.badge.rendered", found=True) == 1
+        assert counter_value(points, "covered.badge.rendered", found=False) == 1
+
+    def test_redis_errors_are_counted(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_redis.get.side_effect = RedisError("connection refused")
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        for _ in range(2):
+            assert client.get("/badge/owner/repo.svg").status_code == 200
+
+        points = collect_metrics(capfire)
+        assert counter_value(points, "covered.badge.cache_lookups", result="error") == 2
+        assert counter_value(points, "covered.badge.cache_lookups", result="miss") == 0
+
+    def test_missing_redis_is_counted_as_unavailable(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        disable_redis: None,
+        capfire: CaptureLogfire,
+    ):
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        for _ in range(3):
+            assert client.get("/badge/owner/repo.svg").status_code == 200
+
+        points = collect_metrics(capfire)
+        assert (
+            counter_value(points, "covered.badge.cache_lookups", result="unavailable")
+            == 3
+        )
+        mock_redis.get.assert_not_called()
+
+
+class TestLogging:
+    pytestmark = pytest.mark.respx(base_url="https://api.github.com")
+
+    def test_failed_cache_read_is_logged(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        caplog.set_level(logging.WARNING)
+        mock_redis.get.side_effect = RedisError("connection refused")
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        assert client.get("/badge/owner/repo.svg").status_code == 200
+
+        record = next(
+            r for r in caplog.records if r.message == "badge cache read failed"
+        )
+        assert record.levelno == logging.WARNING
+        assert getattr(record, "cache_key") == "cache:badge:owner:repo"
+
+    def test_failed_cache_write_is_logged(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        caplog.set_level(logging.WARNING)
+        mock_redis.get.return_value = None
+        mock_redis.set.side_effect = RedisError("connection refused")
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        assert client.get("/badge/owner/repo.svg").status_code == 200
+
+        record = next(
+            r for r in caplog.records if r.message == "badge cache write failed"
+        )
+        assert getattr(record, "cache_key") == "cache:badge:owner:repo"
+
+    @pytest.mark.respx(base_url="https://api.github.com", assert_all_called=False)
+    def test_failed_cache_invalidation_is_logged_with_the_traceback(
+        self,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        api_key: str,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        caplog.set_level(logging.WARNING)
+        mock_redis.delete.side_effect = RedisError("connection refused")
+
+        resp = client.post(
+            "/coverage/invalidate-cache/owner/repo/", headers={"token": api_key}
+        )
+
+        assert resp.status_code == 500
+
+        record = next(
+            r for r in caplog.records if r.message == "cache invalidation failed"
+        )
+        assert record.levelno == logging.ERROR
+        assert getattr(record, "cache_key") == "cache:badge:owner:repo"
+        assert record.exc_info is not None

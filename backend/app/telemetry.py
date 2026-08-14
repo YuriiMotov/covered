@@ -32,6 +32,14 @@ GITHUB_RETRIES = _meter.create_counter(
     "covered.github.retries",
     description="GitHub API attempts that followed a failed one",
 )
+BADGE_CACHE_LOOKUPS = _meter.create_counter(
+    "covered.badge.cache_lookups",
+    description="Badge cache lookups, by result",
+)
+BADGE_RENDERED = _meter.create_counter(
+    "covered.badge.rendered",
+    description="Badges rendered from scratch, by whether coverage was found",
+)
 
 
 def _service_version() -> str:  # pragma: no cover - deployment only

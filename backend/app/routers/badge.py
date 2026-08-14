@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Annotated
 
@@ -11,6 +12,9 @@ from app.dependencies.gh_client import get_github_client
 from app.utils.github_client import GithubClient
 from app.schemas import GhCommitStatus
 from app.dependencies.redis_client import get_redis_client
+from app.telemetry import BADGE_CACHE_LOOKUPS, BADGE_RENDERED, tracer
+
+logger = logging.getLogger(__name__)
 
 COV_RE = re.compile(r"([\d.]+)%")
 
@@ -69,20 +73,30 @@ async def _get_coverage(
 
     # TODO: add caching
     context_pattern = re.compile("coverage", re.IGNORECASE)
-    commits = await gh_client.get_latest_commits(owner=org, repo=repo, limit=5)
-    for commit in commits:
-        if "\n\n[skip ci]" in commit.message:
-            continue
-        statuses = await gh_client.get_commit_statuses(
-            owner=org, repo=repo, sha=commit.sha
-        )
-        for status in statuses:
-            if context_pattern.search(status.context):
-                m = COV_RE.search(status.description)
-                if m:
-                    return float(m.group(1)), status
+    with tracer.start_as_current_span(
+        "badge.resolve_coverage", attributes={"org": org, "repo": repo}
+    ) as span:
+        commits = await gh_client.get_latest_commits(owner=org, repo=repo, limit=5)
+        span.set_attribute("commits_fetched", len(commits))
+        for index, commit in enumerate(commits):
+            if "\n\n[skip ci]" in commit.message:
+                continue
+            span.set_attribute("commit_index", index)
+            span.set_attribute("commit_sha", commit.sha)
+            statuses = await gh_client.get_commit_statuses(
+                owner=org, repo=repo, sha=commit.sha
+            )
+            for status in statuses:
+                if context_pattern.search(status.context):
+                    m = COV_RE.search(status.description)
+                    if m:
+                        coverage = float(m.group(1))
+                        span.set_attribute("coverage_found", True)
+                        span.set_attribute("coverage_percent", coverage)
+                        return coverage, status
+            break
+        span.set_attribute("coverage_found", False)
         return None, None
-    return None, None
 
 
 @router.get("/redirect/{org}/{repo}/")
@@ -118,6 +132,33 @@ def get_response(request: Request, content: str) -> Response:
     )
 
 
+async def _read_cache(
+    redis_client: Redis | None, cache_key: str
+) -> tuple[bytes | None, str]:
+    """The cached SVG, and the lookup result for the metric."""
+    if redis_client is None:
+        return None, "unavailable"
+    try:
+        cached = await redis_client.get(cache_key)
+    except RedisError:
+        logger.warning(
+            "badge cache read failed", extra={"cache_key": cache_key}, exc_info=True
+        )
+        return None, "error"
+    return cached, "hit" if cached else "miss"
+
+
+async def _write_cache(redis_client: Redis | None, cache_key: str, svg: str) -> None:
+    if redis_client is None:
+        return
+    try:
+        await redis_client.set(cache_key, svg.encode("utf-8"), ex=60)
+    except RedisError:
+        logger.warning(
+            "badge cache write failed", extra={"cache_key": cache_key}, exc_info=True
+        )
+
+
 @router.get("/{org}/{repo}.svg")
 async def badge(
     *,
@@ -128,35 +169,29 @@ async def badge(
     redis_client: Annotated[Redis | None, Depends(get_redis_client)],
 ) -> Response:
 
-    cache_key = BADGE_CACHE_KEY.format(org=org, repo=repo)
-    try:
-        cached = await redis_client.get(cache_key) if redis_client else None
-    except RedisError as e:
-        print(f"Error accessing cache: {e}")
-        cached = None
+    with tracer.start_as_current_span(
+        "badge.request", attributes={"org": org, "repo": repo}
+    ) as span:
+        cache_key = BADGE_CACHE_KEY.format(org=org, repo=repo)
+        cached, cache_result = await _read_cache(redis_client, cache_key)
+        span.set_attribute("badge.cache", cache_result)
+        BADGE_CACHE_LOOKUPS.add(1, {"result": cache_result})
 
-    if cached:
-        return get_response(request, cached.decode("utf-8"))
+        if cached:
+            return get_response(request, cached.decode("utf-8"))
 
-    coverage, status = await _get_coverage(org, repo, gh_client)
+        coverage, status = await _get_coverage(org, repo, gh_client)
+        BADGE_RENDERED.add(1, {"found": coverage is not None})
 
-    color_top, color_bot = _badge_color(coverage, status)
-    cov_text = f"{coverage:.0f}%" if coverage is not None else "??%"
+        color_top, color_bot = _badge_color(coverage, status)
+        cov_text = f"{coverage:.0f}%" if coverage is not None else "??%"
 
-    svg = (
-        BADGE_SVG.replace("{cov}", cov_text)
-        .replace("{color_top}", color_top)
-        .replace("{color_bot}", color_bot)
-    )
+        svg = (
+            BADGE_SVG.replace("{cov}", cov_text)
+            .replace("{color_top}", color_top)
+            .replace("{color_bot}", color_bot)
+        )
 
-    try:
-        if redis_client:
-            await redis_client.set(
-                cache_key,
-                svg.encode("utf-8"),
-                ex=60,
-            )
-    except RedisError as e:
-        print(f"Error caching data: {e}")
+        await _write_cache(redis_client, cache_key, svg)
 
-    return get_response(request, svg)
+        return get_response(request, svg)

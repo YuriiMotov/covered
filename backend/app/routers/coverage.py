@@ -1,3 +1,4 @@
+import logging
 import mimetypes
 
 import re
@@ -21,6 +22,8 @@ SAFE_PATH_RE = re.compile(r"^(?!.*(?:^|/)\.\.(?:/|$)).*$")
 SiteId = Annotated[str, Path(pattern=r"^[a-f0-9]{12}$")]
 SafePath = Annotated[str, Path(pattern=SAFE_PATH_RE)]  # ty: ignore[invalid-argument-type]
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -37,8 +40,8 @@ async def invalidate_cache(
     try:
         if redis_client:
             await redis_client.delete(cache_key)
-    except RedisError as e:
-        print(f"Error invalidating cache for {repo_owner}/{repo_name}: {e}")
+    except RedisError:
+        logger.exception("cache invalidation failed", extra={"cache_key": cache_key})
         raise HTTPException(status_code=500, detail="Failed to invalidate cache")
 
     return {"status": "success"}
