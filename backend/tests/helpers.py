@@ -44,7 +44,7 @@ def get_commit(sha: str | None = None, skip_ci: bool = False) -> dict[str, Any]:
     return {"sha": sha, "commit": {"message": message}}
 
 
-MetricPoint = tuple[str, dict[str, Any], Any]
+MetricPoint = tuple[str, dict[str, Any], dict[str, Any]]
 
 
 def collect_metrics(capfire: CaptureLogfire) -> list[MetricPoint]:
@@ -52,13 +52,14 @@ def collect_metrics(capfire: CaptureLogfire) -> list[MetricPoint]:
 
     The reader empties itself when read, so call this once per test.
     """
-    data = capfire.metrics_reader.get_metrics_data()
+    try:
+        collected = capfire.get_collected_metrics()
+    except AttributeError:  # logfire raises when no metric was recorded at all
+        return []
     return [
-        (metric.name, dict(point.attributes or {}), point)
-        for resource_metric in (data.resource_metrics if data else [])
-        for scope_metric in resource_metric.scope_metrics
-        for metric in scope_metric.metrics
-        for point in metric.data.data_points
+        (metric["name"], point["attributes"], point)
+        for metric in collected
+        for point in metric["data"]["data_points"]
     ]
 
 
@@ -66,13 +67,13 @@ def counter_value(points: list[MetricPoint], name: str, **attributes: Any) -> in
     """Value of the counter series with exactly these attributes, or 0."""
     for metric_name, point_attributes, point in points:
         if metric_name == name and point_attributes == attributes:
-            return point.value
+            return point["value"]
     return 0
 
 
 def histogram_sum(points: list[MetricPoint], name: str) -> float:
     """Sum of everything recorded into a histogram, or 0."""
-    return sum(point.sum for metric_name, _, point in points if metric_name == name)
+    return sum(point["sum"] for metric_name, _, point in points if metric_name == name)
 
 
 def find_spans(capfire: CaptureLogfire, name: str) -> list[dict[str, Any]]:
