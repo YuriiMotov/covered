@@ -30,6 +30,11 @@ NO_SUCH_KEY = ClientError(
     operation_name="GetObject",
 )
 
+ACCESS_DENIED = ClientError(
+    error_response={"Error": {"Code": "AccessDenied"}},
+    operation_name="GetObject",
+)
+
 
 def s3_response(content: bytes) -> dict[str, AsyncMock]:
     """A fake `get_object` response with a readable body."""
@@ -85,6 +90,23 @@ class TestS3Spans:
         span = find_span(capfire, "s3.get_object")
         assert span is not None
         assert span["attributes"]["result"] == "not_found"
+        assert "file_size" not in span["attributes"]
+
+    def test_unexpected_failure_is_marked_as_error(
+        self,
+        client: TestClient,
+        mock_s3_client: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_s3_client.get_object.side_effect = ACCESS_DENIED
+
+        resp = client.get(f"/coverage/{SITE_ID}/index.html")
+
+        assert resp.status_code == 404
+
+        span = find_span(capfire, "s3.get_object")
+        assert span is not None
+        assert span["attributes"]["result"] == "error"
         assert "file_size" not in span["attributes"]
 
 
@@ -189,6 +211,28 @@ class TestS3Metrics:
         points = collect_metrics(capfire)
         assert counter_value(points, "covered.s3.files_served", result="ok") == 2
         assert counter_value(points, "covered.s3.files_served", result="not_found") == 3
+
+    def test_unexpected_failures_are_counted_as_errors(
+        self,
+        client: TestClient,
+        mock_s3_client: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_s3_client.get_object.side_effect = [
+            ACCESS_DENIED,
+            NO_SUCH_KEY,
+            s3_response(FILE_CONTENT),
+        ]
+
+        for path in ("a.html", "b.html", "c.html"):
+            client.get(f"/coverage/{SITE_ID}/{path}")
+
+        points = collect_metrics(capfire)
+        assert counter_value(points, "covered.s3.files_served", result="error") == 1
+        assert counter_value(points, "covered.s3.files_served", result="not_found") == 1
+        assert counter_value(points, "covered.s3.files_served", result="ok") == 1
+        # Only the served file records a size.
+        assert histogram_sum(points, "covered.s3.file_size") == len(FILE_CONTENT)
 
     def test_file_sizes_add_up(
         self,

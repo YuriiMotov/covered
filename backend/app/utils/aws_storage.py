@@ -159,10 +159,10 @@ class AWSStorage:
                     span.set_attribute("result", "not_found")
                     S3_FILES_SERVED.add(1, {"result": "not_found"})
                     raise AWSStorageError(f"File not found: {full_key}")
-                span.set_attribute("result", "error")  # pragma: no cover
-                span.record_exception(e)  # pragma: no cover
-                S3_FILES_SERVED.add(1, {"result": "error"})  # pragma: no cover
-                raise AWSStorageError(f"Failed to get file: {e}")  # pragma: no cover
+                span.set_attribute("result", "error")
+                span.record_exception(e)
+                S3_FILES_SERVED.add(1, {"result": "error"})
+                raise AWSStorageError(f"Failed to get file: {e}")
             span.set_attribute("result", "ok")
             span.set_attribute("file_size", len(content))
             S3_FILES_SERVED.add(1, {"result": "ok"})
