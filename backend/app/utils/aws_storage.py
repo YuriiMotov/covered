@@ -138,7 +138,8 @@ class AWSStorage:
                 session_token=credentials["SessionToken"],
             )
 
-    async def get_file(self, site_id: str, key: str) -> bytes:
+    async def get_file(self, site_id: str, key: str) -> bytes | None:
+        """File content, or None if it does not exist in S3."""
         if self._client is None:
             raise AWSStorageError("Client not initialized")
         full_key = f"sites/{site_id}/{key}"
@@ -157,7 +158,7 @@ class AWSStorage:
                 if e.response.get("Error", {}).get("Code") == "NoSuchKey":
                     span.set_attribute("result", "not_found")
                     S3_FILES_SERVED.add(1, {"result": "not_found"})
-                    raise AWSStorageError(f"File not found: {full_key}")
+                    return None
                 span.set_attribute("result", "error")
                 S3_FILES_SERVED.add(1, {"result": "error"})
                 raise AWSStorageError(f"Failed to get file: {e}")

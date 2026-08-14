@@ -61,6 +61,18 @@ class TestGetFile:
 
         assert resp.status_code == 404
 
+    def test_unhandled_s3_error_returns_503(
+        self, client: TestClient, mock_s3_client: AsyncMock
+    ):
+        mock_s3_client.get_object.side_effect = ClientError(
+            error_response={"Error": {"Code": "AccessDenied"}},
+            operation_name="GetObject",
+        )
+
+        resp = client.get(f"/coverage/{SITE_ID}/index.html")
+
+        assert resp.status_code == 503
+
     def test_empty_path_serves_index_html(
         self, client: TestClient, mock_s3_client: AsyncMock
     ):

@@ -9,6 +9,7 @@ import respx
 from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 from logfire.testing import CaptureLogfire
+from opentelemetry.trace import StatusCode
 from redis import RedisError
 
 from tests.helpers import (
@@ -41,6 +42,17 @@ def s3_response(content: bytes) -> dict[str, AsyncMock]:
     body = AsyncMock()
     body.read.return_value = content
     return {"Body": body}
+
+
+def span_status(capfire: CaptureLogfire, name: str) -> StatusCode:
+    """Status of the first exported span with this name, skipping pending spans."""
+    span = next(
+        s
+        for s in capfire.exporter.exported_spans
+        if s.name == name
+        and (s.attributes or {}).get("logfire.span_type") != "pending_span"
+    )
+    return span.status.status_code
 
 
 def github_span(capfire: CaptureLogfire, endpoint: str) -> dict:
@@ -91,6 +103,7 @@ class TestS3Spans:
         assert span is not None
         assert span["attributes"]["result"] == "not_found"
         assert "file_size" not in span["attributes"]
+        assert span_status(capfire, "s3.get_object") is StatusCode.UNSET
 
     def test_unexpected_failure_is_marked_as_error(
         self,
@@ -102,12 +115,13 @@ class TestS3Spans:
 
         resp = client.get(f"/coverage/{SITE_ID}/index.html")
 
-        assert resp.status_code == 404
+        assert resp.status_code == 503
 
         span = find_span(capfire, "s3.get_object")
         assert span is not None
         assert span["attributes"]["result"] == "error"
         assert "file_size" not in span["attributes"]
+        assert span_status(capfire, "s3.get_object") is StatusCode.ERROR
 
 
 class TestUploadSessionSpans:

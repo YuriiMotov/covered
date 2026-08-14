@@ -59,6 +59,9 @@ async def get_file(
     try:
         content = await aws_storage.get_file(site_id, path)
     except AWSStorageError:
+        return Response(status_code=503)
+
+    if content is None:
         return Response(status_code=404)
 
     media_type, _ = mimetypes.guess_type(path)
