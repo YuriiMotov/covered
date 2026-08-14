@@ -3,6 +3,7 @@ import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
+from opentelemetry import trace
 from fastapi.responses import RedirectResponse
 from redis import RedisError
 from redis.asyncio import Redis
@@ -169,29 +170,26 @@ async def badge(
     redis_client: Annotated[Redis | None, Depends(get_redis_client)],
 ) -> Response:
 
-    with tracer.start_as_current_span(
-        "badge.request", attributes={"org": org, "repo": repo}
-    ) as span:
-        cache_key = BADGE_CACHE_KEY.format(org=org, repo=repo)
-        cached, cache_result = await _read_cache(redis_client, cache_key)
-        span.set_attribute("badge.cache", cache_result)
-        BADGE_CACHE_LOOKUPS.add(1, {"result": cache_result})
+    cache_key = BADGE_CACHE_KEY.format(org=org, repo=repo)
+    cached, cache_result = await _read_cache(redis_client, cache_key)
+    trace.get_current_span().set_attribute("badge.cache", cache_result)
+    BADGE_CACHE_LOOKUPS.add(1, {"result": cache_result})
 
-        if cached:
-            return get_response(request, cached.decode("utf-8"))
+    if cached:
+        return get_response(request, cached.decode("utf-8"))
 
-        coverage, status = await _get_coverage(org, repo, gh_client)
-        BADGE_RENDERED.add(1, {"found": coverage is not None})
+    coverage, status = await _get_coverage(org, repo, gh_client)
+    BADGE_RENDERED.add(1, {"found": coverage is not None})
 
-        color_top, color_bot = _badge_color(coverage, status)
-        cov_text = f"{coverage:.0f}%" if coverage is not None else "??%"
+    color_top, color_bot = _badge_color(coverage, status)
+    cov_text = f"{coverage:.0f}%" if coverage is not None else "??%"
 
-        svg = (
-            BADGE_SVG.replace("{cov}", cov_text)
-            .replace("{color_top}", color_top)
-            .replace("{color_bot}", color_bot)
-        )
+    svg = (
+        BADGE_SVG.replace("{cov}", cov_text)
+        .replace("{color_top}", color_top)
+        .replace("{color_bot}", color_bot)
+    )
 
-        await _write_cache(redis_client, cache_key, svg)
+    await _write_cache(redis_client, cache_key, svg)
 
-        return get_response(request, svg)
+    return get_response(request, svg)

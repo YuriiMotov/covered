@@ -494,7 +494,7 @@ class TestBadgeSpans:
     pytestmark = pytest.mark.respx(base_url="https://api.github.com")
 
     @pytest.mark.respx(base_url="https://api.github.com", assert_all_called=False)
-    def test_cache_hit_is_recorded_on_the_request_span(
+    def test_cache_hit_skips_coverage_resolution(
         self,
         client: TestClient,
         respx_mock: respx.MockRouter,
@@ -508,11 +508,8 @@ class TestBadgeSpans:
 
         assert resp.text == "<svg>cached</svg>"
 
-        span = find_span(capfire, "badge.request")
-        assert span is not None
-        assert span["attributes"]["org"] == "owner"
-        assert span["attributes"]["repo"] == "repo"
-        assert span["attributes"]["badge.cache"] == "hit"
+        assert find_span(capfire, "badge.resolve_coverage") is None
+        assert find_spans(capfire, "github.request") == []
 
     def test_resolved_coverage_is_described_on_its_own_span(
         self,
@@ -530,12 +527,8 @@ class TestBadgeSpans:
 
         assert "coverage: 87%" in client.get("/badge/owner/repo.svg").text
 
-        request_span = find_span(capfire, "badge.request")
         span = find_span(capfire, "badge.resolve_coverage")
-        assert request_span is not None
         assert span is not None
-        assert request_span["attributes"]["badge.cache"] == "miss"
-        assert span["parent"]["span_id"] == request_span["context"]["span_id"]
         assert span["attributes"]["commits_fetched"] == 1
         assert span["attributes"]["coverage_found"] is True
         assert span["attributes"]["coverage_percent"] == 87.0
@@ -586,7 +579,7 @@ class TestBadgeSpans:
         assert "commit_index" not in span["attributes"]
         assert "commit_sha" not in span["attributes"]
 
-    def test_the_whole_request_is_one_trace(
+    def test_github_calls_nest_under_resolve_span(
         self,
         client: TestClient,
         respx_mock: respx.MockRouter,
@@ -602,17 +595,13 @@ class TestBadgeSpans:
 
         assert client.get("/badge/owner/repo.svg").status_code == 200
 
-        request_span = find_span(capfire, "badge.request")
         resolve_span = find_span(capfire, "badge.resolve_coverage")
-        assert request_span is not None
         assert resolve_span is not None
 
-        # badge.request > badge.resolve_coverage > github.request (x2)
-        assert resolve_span["parent"]["span_id"] == request_span["context"]["span_id"]
         for endpoint in ("commits", "statuses"):
             span = github_span(capfire, endpoint)
             assert span["parent"]["span_id"] == resolve_span["context"]["span_id"]
-            assert span["context"]["trace_id"] == request_span["context"]["trace_id"]
+            assert span["context"]["trace_id"] == resolve_span["context"]["trace_id"]
 
     def test_badge_without_coverage_says_so(
         self,
