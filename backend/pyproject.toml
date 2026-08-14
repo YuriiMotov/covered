@@ -14,7 +14,6 @@ dependencies = [
     "redis[hiredis]>=7.3.0",
     "stamina>=24.3.0",
     "types-aiobotocore[s3]>=3.2.1",
-    "uvicorn>=0.47.0",
 ]
 
 [tool.fastapi]
