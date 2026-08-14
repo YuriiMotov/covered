@@ -12,6 +12,10 @@ from app.config import get_settings
 from app.dependencies.redis_client import get_redis_client
 from app.application import app
 
+# A real Logfire token must never reach the tests. Pytest runs this before any
+# test module can import `app.main` — conftest itself must not import it.
+os.environ.pop("LOGFIRE_TOKEN", None)
+
 TEST_API_KEY = "test-api-key"
 
 

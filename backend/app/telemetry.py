@@ -1,4 +1,5 @@
 import logging
+import os
 from importlib.metadata import PackageNotFoundError, version
 
 import logfire
@@ -49,15 +50,15 @@ def _service_version() -> str:  # pragma: no cover - deployment only
         return "unknown"
 
 
-def setup_telemetry(app: FastAPI) -> None:  # pragma: no cover - deployment only
-    """Configure Logfire and switch on instrumentation."""
-    logfire.configure(
-        service_name="covered-backend",
-        service_version=_service_version(),
-        send_to_logfire="if-token-present",
-    )
-    logfire.instrument_system_metrics()
-    logfire.instrument_fastapi(app)
-    logfire.instrument_httpx()
-    logfire.instrument_redis()
-    logging.getLogger().addHandler(LogfireLoggingHandler())
+def setup_telemetry(app: FastAPI) -> None:
+    """Configure Logfire and switch on instrumentation. No-op without a token."""
+    if os.environ.get("LOGFIRE_TOKEN") is not None:  # pragma: no cover
+        logfire.configure(
+            service_name="covered-backend",
+            service_version=_service_version(),
+        )
+        logfire.instrument_system_metrics()
+        logfire.instrument_fastapi(app)
+        logfire.instrument_httpx()
+        logfire.instrument_redis()
+        logging.getLogger().addHandler(LogfireLoggingHandler())
