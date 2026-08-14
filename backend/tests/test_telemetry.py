@@ -9,6 +9,7 @@ import respx
 from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 from logfire.testing import CaptureLogfire
+from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 from redis import RedisError
 
@@ -35,6 +36,8 @@ ACCESS_DENIED = ClientError(
     error_response={"Error": {"Code": "AccessDenied"}},
     operation_name="GetObject",
 )
+
+tracer = trace.get_tracer("tests")
 
 
 def s3_response(content: bytes) -> dict[str, AsyncMock]:
@@ -510,6 +513,39 @@ class TestBadgeSpans:
 
         assert find_span(capfire, "badge.resolve_coverage") is None
         assert find_spans(capfire, "github.request") == []
+
+    @pytest.mark.respx(base_url="https://api.github.com", assert_all_called=False)
+    @pytest.mark.parametrize(
+        ("cached", "expected"),
+        [
+            pytest.param(b"<svg>cached</svg>", "hit", id="hit"),
+            pytest.param(None, "miss", id="miss"),
+        ],
+    )
+    def test_the_cache_result_lands_on_the_current_span(
+        self,
+        cached: bytes | None,
+        expected: str,
+        client: TestClient,
+        respx_mock: respx.MockRouter,
+        mock_redis: AsyncMock,
+        capfire: CaptureLogfire,
+    ):
+        mock_redis.get.return_value = cached
+        commit = get_commit()
+        respx_mock.get("/repos/owner/repo/commits").respond(json=[commit])
+        respx_mock.get(f"/repos/owner/repo/statuses/{commit['sha']}").respond(
+            json=[COVERAGE_STATUS]
+        )
+
+        # In production this attribute lands on the FastAPI request span, which
+        # the suite does not instrument. A span of our own stands in for it.
+        with tracer.start_as_current_span("test.request"):
+            assert client.get("/badge/owner/repo.svg").status_code == 200
+
+        span = find_span(capfire, "test.request")
+        assert span is not None
+        assert span["attributes"]["badge.cache"] == expected
 
     def test_resolved_coverage_is_described_on_its_own_span(
         self,

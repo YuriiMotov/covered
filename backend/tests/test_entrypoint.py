@@ -14,7 +14,7 @@ BACKEND_DIR = Path(__file__).parent.parent
 def serve_smoke_request() -> None:  # pragma: no cover - runs in a subprocess
     """Real telemetry conflicts with capfire, so this runs in a subprocess."""
 
-    assert main.app._is_instrumented_by_opentelemetry
+    assert getattr(main.app, "_is_instrumented_by_opentelemetry", False)
 
     with TestClient(main.app) as client:
         print(client.get("/coverage/not-a-site-id/index.html").status_code)

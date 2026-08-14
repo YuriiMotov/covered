@@ -52,7 +52,7 @@ def _service_version() -> str:  # pragma: no cover - deployment only
 
 def setup_telemetry(app: FastAPI) -> None:
     """Configure Logfire and switch on instrumentation. No-op without a token."""
-    if os.environ.get("LOGFIRE_TOKEN") is not None:  # pragma: no cover
+    if os.environ.get("LOGFIRE_TOKEN", "").strip():  # pragma: no cover
         logfire.configure(
             service_name="covered-backend",
             service_version=_service_version(),
